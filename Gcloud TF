@@ -1,0 +1,81 @@
+provider "google" {
+  project = "your-project-id"
+  region  = "us-central1"
+}
+
+# Grant Katlego full administrative access to the Google Cloud project
+resource "google_project_iam_member" "katlego_admin" {
+  project = "your-project-id"
+  role    = "roles/owner"
+  member  = "user:kwmaputla@gmail.com"
+}
+
+# Create an Instance Template
+resource "google_compute_instance_template" "default" {
+  name        = "appserver-template"
+  description = "This template is used to create app server instances."
+
+  tags = ["foo", "bar"]
+
+  labels = {
+    environment = "test"
+  }
+
+  instance_description = "description assigned to instances"
+  machine_type         = "e2-medium"
+  can_ip_forward       = false
+
+  scheduling {
+    automatic_restart   = true
+    on_host_maintenance = "MIGRATE"
+  }
+
+  # Boot Disk (ensuring it is deleted with the instance)
+  disk {
+    source_image = "centos-cloud/centos-stream-9"
+    boot         = true
+    auto_delete  = true  # Ensures the boot disk is deleted when the instance is removed
+  }
+
+  # Use an existing disk resource (now managed properly)
+  disk {
+    source      = google_compute_disk.foobar.name
+    boot        = false
+    auto_delete = true  # Ensures this disk is deleted when the instance is removed
+  }
+
+  network_interface {
+    network = "default"
+  }
+
+  metadata_startup_script = <<-EOF
+    #!/bin/bash
+    sudo yum install -y yum-utils
+    sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+    sudo yum install -y docker-ce docker-ce-cli containerd.io
+    sudo systemctl enable --now docker
+    sudo usermod -aG docker $(whoami)
+
+    # Run Nginx container
+    sudo docker run -d --name nginx-container -p 80:80 nginx
+  EOF
+
+  metadata = {
+    foo = "bar"
+  }
+}
+
+# Define the Compute Disk (removing auto_delete)
+resource "google_compute_disk" "foobar" {
+  name  = "existing-disk"
+  image = data.google_compute_image.my_image.self_link
+  size  = 10
+  type  = "pd-ssd"
+  zone  = "us-central1-a"
+}
+
+# Define the Image Data
+data "google_compute_image" "my_image" {
+  family  = "centos-stream-9"
+  project = "centos-cloud"
+}
